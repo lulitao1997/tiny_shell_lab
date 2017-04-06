@@ -65,7 +65,6 @@ void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
 /* herper functions added by student */
-int is_builtin_cmd(char *cmd);
 
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv);
@@ -155,13 +154,6 @@ int main(int argc, char **argv)
     exit(0); /* control never reaches here */
 }
 
-int is_builtin_cmd(char *cmd) {
-    return strcmp(cmd, "quit")==0 ||
-           strcmp(cmd, "jobs")==0 ||
-           strcmp(cmd, "bg")==0 ||
-           strcmp(cmd, "fg");
-}
-
 /*
  * eval - Evaluate the command line that the user has just typed in
  *
@@ -175,22 +167,30 @@ int is_builtin_cmd(char *cmd) {
 */
 void eval(char *cmdline)
 {
-    int argc;
-    char **argv;
-    parseline(cmdline, argv);
-    if (is_builtin_cmd(cmdline)) {
-        builtin_cmd(argv);
-    }
-    else {
+    int bg;
+    char *argv[MAXARGS];
+    bg = parseline(cmdline, argv);
+
+    if (argv[0] == NULL) return;
+
+    if (is_builtin_cmd(cmdline) != 0) {
         pid_t pid = Fork();
         if (pid == 0) {
             /*Child*/
-
+            if (execve(argv[0], argv, environ) < 0) {
+                printf("command not found: %s\n", argv[0]);
+                exit(0);
+            }
         }
-        else {
-            /*Parent*/
-            wait(pid);
+        /*Parent*/
+        if (!bg) { /*foreground*/
+            int status;
+            if (waitpid(pid, &status, 0) < 0) {
+                unix_error("waitfg: waitpid error");
+            }
         }
+        else
+            printf("%d %s", pid, cmdline);
     }
     return;
 }
@@ -258,6 +258,23 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv)
 {
+    if (strcmp(cmd, "quit")==0) {
+        printf("shell quited");
+        exit(0);
+    }
+    if (strcmp(cmd, "jobs")==0) {
+        for (size_t i = 0; i < MAXJOBS; i++) {
+            if (jobs[i].state!=UNDEF) {
+                printf("%s\n", jobs[i].cmdline);
+                /*TODO*/
+            }
+        }
+        return 1;
+    }
+    if (strcmp(cmd, "bg")==0 || strcmp(cmd, "fg")) {
+        do_bgfg(argv);
+        return 1;
+    }
     return 0;     /* not a builtin command */
 }
 
