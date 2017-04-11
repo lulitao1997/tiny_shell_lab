@@ -207,7 +207,7 @@ void eval(char *cmdline)
         }
 
         /*Parent*/
-        //Sigprocmask(SIG_SETMASK, &mask_all, &prev_mask);
+        Sigprocmask(SIG_SETMASK, &mask_all, &prev_mask);
         if (!bg) { /*foreground*/
             addjob(jobs, pid, FG, cmdline);
             waitfg(pid);
@@ -305,7 +305,7 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv)
 {
-    fprintf(stderr, "doing bgfg\n");
+    // fprintf(stderr, "doing bgfg\n");
     char *cmd = argv[0], *num = argv[1];
     int jid = -1, pid = -1;
     sigset_t prev_mask, mask_child;
@@ -314,7 +314,7 @@ void do_bgfg(char **argv)
     Sigemptyset(&mask_child);
     Sigaddset(&mask_child, SIGCHLD);
 
-    fprintf(stderr, "cmd: %s %s\n", argv[0], argv[1]);
+    // fprintf(stderr, "cmd: %s %s\n", argv[0], argv[1]);
 
     if (num[0] == '%') {
         int jid = atoi(num + 1);
@@ -341,7 +341,7 @@ void do_bgfg(char **argv)
     else {
         jobp->state = FG;
         Kill(-jobp->pid, SIGCONT);
-        waitfg(pid);
+        waitfg(jobp->pid);
     }
     //Sigprocmask(SIG_SETBLOCK, prev_mask, NULL);
 }
@@ -367,6 +367,10 @@ void waitfg(pid_t pid)
  *****************/
 
 /*
+ * Remember: All handlers only work for shell, and don't work for Forked progs.
+ */
+
+/*
  * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
  *     a child job terminates (becomes a zombie), or stops because it
  *     received a SIGSTOP or SIGTSTP signal. The handler reaps all
@@ -375,12 +379,13 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
-    fprintf(stderr, "sigchld received\n");
+    // fprintf(stderr, "sigchld received\n");
     int olderrno = errno;
     int status;
     pid_t cpid;
 
     while ((cpid=waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
+        /* Process as many children as possible. */
         if (WIFSTOPPED(status)) {
             printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(cpid), cpid, WSTOPSIG(status));
             getjobpid(jobs, cpid)->state = ST;
