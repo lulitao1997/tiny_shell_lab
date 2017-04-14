@@ -202,18 +202,20 @@ void eval(char *cmdline)
             /*Restore to default handlers and unblock signals*/
             if (execve(argv[0], argv, environ) < 0) {
                 printf("Command not found: %s\n", argv[0]);
+                fflush(stdout);
                 exit(0);
             }
         }
 
         /*Parent*/
-        Sigprocmask(SIG_SETMASK, &mask_all, &prev_mask);
         if (!bg) { /*foreground*/
             addjob(jobs, pid, FG, cmdline);
             waitfg(pid);
+            // fprintf(stderr, "wait end\n");
         }
         else { /*background*/
             addjob(jobs, pid, BG, cmdline);
+            Sigprocmask(SIG_SETMASK, &mask_all, NULL);
             printf("[%d] (%d) %s\n", pid2jid(pid), pid, cmdline);
         }
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
@@ -303,6 +305,15 @@ int builtin_cmd(char **argv)
 /*
  * do_bgfg - Execute the builtin bg and fg commands
  */
+
+int isnum(char *s) {
+    if (*s == '\0') return 0;
+    for (; *s!='\0'; s++)
+        if (!isdigit(*s))
+            return 0;
+    return 1;
+}
+
 void do_bgfg(char **argv)
 {
     // fprintf(stderr, "doing bgfg\n");
@@ -315,23 +326,35 @@ void do_bgfg(char **argv)
     Sigaddset(&mask_child, SIGCHLD);
 
     // fprintf(stderr, "cmd: %s %s\n", argv[0], argv[1]);
+    int bg = (strcmp(cmd, "bg") == 0);
 
+    if (num == NULL) {
+        printf("%s command requires PID or %%jobid argument\n", cmd);
+        return;
+    }
+    if (!isnum(num) && (!isnum(num+1) || num[0]!='%')) {
+        printf("%s: argument must be a PID or %%jobid\n", cmd);
+        return;
+    }
     if (num[0] == '%') {
         int jid = atoi(num + 1);
         jobp = getjobjid(jobs, jid);
+        if (jobp == NULL) {
+            printf("[%d]: No such job\n", jid);
+            return;
+        }
     }
     else{
         int pid = atoi(num);
         jobp = getjobpid(jobs, pid);
-    }
-    if (jobp == NULL) {
-        printf("No such job or pid.\n");
-        return;
+        if (jobp == NULL) {
+            printf("(%d): No such process\n", pid);
+            return;
+        }
     }
 
     //Sigprocmask(SIG_BLOCK, mask_child, prev_mask);
     //TODO: what if SIGCHLD received before waitfg?
-    int bg = (strcmp(cmd, "bg") == 0);
 
     if (bg) {
         Kill(-jobp->pid, SIGCONT);
@@ -353,12 +376,10 @@ void waitfg(pid_t pid)
 {
     sigset_t mask_empty;
     sigemptyset(&mask_empty);
-    // Sigprocmask(SIG_SETMASK, &mask_child, &prev_mask);
     while (fgpid(jobs) == pid) { /*wait till that group all ends*/
         /*aware that may have other background tasks ended*/
         sigsuspend(&mask_empty);
     }
-    // Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     return;
 }
 
